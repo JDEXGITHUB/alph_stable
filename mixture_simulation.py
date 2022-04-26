@@ -99,6 +99,7 @@ win_s = pra.transform.stft.compute_synthesis_window(win_a, hop)
 # Observation vector in the STFT domain
 X = pra.transform.stft.analysis(mics_signals.T, L, hop, win=win_a)
 X = X.transpose(1,0,2)
+X = X[:-1,:,:]
 
 # Reference signal to calculate performance of BSS
 ref = separate_recordings[ : , 0 , :]
@@ -114,7 +115,7 @@ save_path = './data/audio/out/'
 
 nfft = L // 2
 
-f_model = open(save_path+'mixutre_nfft={}.pkl'.format(nfft), 'wb')
+f_model = open(save_path+'mixture_nfft={}.pkl'.format(nfft), 'wb')
 
 if save:
     pkl.dump(X, f_model)

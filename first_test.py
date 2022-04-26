@@ -17,7 +17,7 @@ import argparse
 
 import glob as glob
 
-nfft = 1025
+nfft = 1024
 
 parser = argparse.ArgumentParser()
 parser.add_argument(         '--gpu', type= int, default=     0, help='GPU ID')
@@ -41,9 +41,9 @@ args = parser.parse_args()
 
 for id_file in range(args.id_min, args.id_max):
 
-    if args.gpu < 0:
+    if args.gpu <= 0:
         import numpy as xp
-    else:
+    else: 
         import cupy as xp
         print("Use GPU " + str(args.gpu))
         xp.cuda.Device(args.gpu).use()
@@ -53,9 +53,11 @@ for id_file in range(args.id_min, args.id_max):
                                                           args.n_speaker,
                                                           args.alpha))
     
-    fileObject2 = open('./data/audio/out/'+'mixutre_nfft={}.pkl'.format(nfft), 'wb')
-    mix_spec = pkl.load(fileObject2).astype(np.complex64)
+    fileObject2 = open('./data/audio/out/mixture_nfft={}.pkl'.format(nfft), 'rb')
+    unpickler = pkl.Unpickler(fileObject2)
+    mix_spec = unpickler.load().astype(np.complex64)
     fileObject2.close()
+    
     if args.update_psi:
         method_name = 'Alpha-Psi_MNMF'
     else:

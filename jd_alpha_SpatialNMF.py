@@ -61,7 +61,7 @@ class Alpha_MNMF():
         self.nfft = 1024
         self.rand_s = self.xp.random.RandomState(self.seed)
 
-        file = np.load("coeff.npz")
+        file = np.load("./data/coeff.npz")
         index = np.argmin(np.abs(file['Alpha']-self.alpha))
         (a1, a2, a3, a4) = tuple(file['Eta_den_coeff'][index])
         self.a_4 = self.xp.array([a1, a2, a3, a4])
@@ -79,8 +79,9 @@ class Alpha_MNMF():
 # Initialization of parameters
 
     def init_Theta(self):
-        fileObject2 = open('Theta_P={}-nfft={}.pkl'.format(P, nfft), 'wb')
-        Theta = pkl.load(fileObject2).astype(self.xp.complex64)
+        fileObject2 = open('./data/Theta_P={}-nfft={}.pkl'.format(self.P, self.nfft), 'rb')
+        unpickler = pkl.Unpickler(fileObject2)
+        Theta = unpickler.load().astype(self.xp.complex64)
         fileObject2.close()
         self.Theta_FPM = Theta
         self.Theta_FPM /= self.xp.linalg.norm(self.Theta_FPM, axis=-1, keepdims=True)
@@ -92,10 +93,12 @@ class Alpha_MNMF():
 
 
     def init_Psi(self):
-        file0 = open('Theta_P={}-nfft={}.pkl'.format(P, nfft), 'wb')
-        Theta = pkl.load(file0).astype(self.xp.complex64)
+        file0 = open('./data/Theta_P={}-nfft={}.pkl'.format(self.P, self.nfft), 'rb')
+        unpickler = pkl.Unpickler(file0)
+        Theta = unpickler.load().astype(self.xp.complex64)
+        #Theta = pkl.load(file0).astype(self.xp.complex64)
         file0.close()
-        self.Psi_FPQ = self.xp.abs(self.xp.einsum("fpm,fqm->fpq",Theta_FPM.conj(),Theta))
+        self.Psi_FPQ = self.xp.abs(self.xp.einsum("fpm,fqm->fpq",self.Theta_FPM.conj(),Theta))
         #f_model = h5py.File(self.PSI_PATH + 'Psi-nfft={}-alpha={}-M={}.hdf5'.format(self.nfft, self.alpha, self.n_mic), 'r')
         #self.Psi_FQP = self.xp.asarray(f_model['Psi_FPP']).astype(self.xp.float32)
         # phi_F = self.xp.sum(self.Psi_FPP * self.Psi_FPP, axis=(1, 2)) / self.P
@@ -116,7 +119,8 @@ class Alpha_MNMF():
         quo = self.P // self.n_source
         for n in range(self.n_source):
             self.SM_NFP[n, :, n * quo] = 1
-        self.Gn_NFP = self.xp.einsum("fpq,nfq->nfp",self.Psi_FPQ, self.SM_NFP)
+        print(self.Psi_FPQ.shape, self.SM_NFP.shape)
+        self.Gn_NFP = self.xp.einsum("fpq,nfp->nfq",self.Psi_FPQ, self.SM_NFP)
         #self.Gn_NFP = (self.Psi_FPP[None] * self.SM_NFP[:, :, None]).sum(axis=-1)
         # self.Gn_NFP = (self.Psi_FPP[None] * self.SM_NP[:, None, None]).sum(axis=-1) + self.eps
         # self.Gn_NFP /= self.Gn_NFP.sum(axis=-1)[:, :, None]
@@ -133,8 +137,8 @@ class Alpha_MNMF():
                                  self.X_FTM)).astype(self.xp.float32)
         del self.Theta_FPM
         gc.collect()
-        mempool = self.xp.get_default_memory_pool()
-        mempool.free_all_blocks()
+        #mempool = self.xp.get_default_memory_pool()
+        #mempool.free_all_blocks()
         self.b_3 = self.xp.asarray([float(4. - 2. * (i-1) + 2*self.n_mic) for i in range(1,4)])
         self.b_3 /= self.alpha
         self.C_1 = 2 * self.a_4[-1] / self.alpha
@@ -142,7 +146,7 @@ class Alpha_MNMF():
         self.C_3 = self.alpha / (2. + self.alpha)
 
         # Auxiliary variable
-        self.Y_FTP = xp.einsum("nfp , nft -> ftp",self.Gn_NFP,
+        self.Y_FTP = self.xp.einsum("nfp , nft -> ftp",self.Gn_NFP,
                       self.lambda_NFT).astype(self.xp.float32)
         self.compute_Xi()
 
@@ -167,11 +171,11 @@ class Alpha_MNMF():
     def update_WH(self):
         # N x F x K x T x Pp
         num_W = (self.C_1 *\
-                 xp.einsum("nkt,ftp,ftp,nfp -> nfk",self.H_NKT,
+                 self.xp.einsum("nkt,ftp,ftp,nfp -> nfk",self.H_NKT,
                  self.Y_FTP ** (self.C_2),
                  self.X_FTP ** 2,
                  self.Gn_NFP))
-        den_W = xp.einsum("ftp,ftp,nkt,nfp -> nfk",self.Xi_FTP,
+        den_W = self.xp.einsum("ftp,ftp,nkt,nfp -> nfk",self.Xi_FTP,
                  self.Y_FTP ** (- 1),
                  self.H_NKT,
                  self.Gn_NFP) + self.eps
@@ -180,11 +184,11 @@ class Alpha_MNMF():
         # N x F x K x T x Pp
 
         num_H = (self.C_1 *\
-                 xp.einsum("nfk,ftp,ftp,nfp -> nkt",self.W_NFK,
+                 self.xp.einsum("nfk,ftp,ftp,nfp -> nkt",self.W_NFK,
                  self.Y_FTP ** (self.C_2),
                  self.X_FTP ** 2,
                  self.Gn_NFP))
-        den_H = xp.einsum("ftp,ftp,nfk,nfp -> nkt",self.Xi_FTP,
+        den_H = self.xp.einsum("ftp,ftp,nfk,nfp -> nkt",self.Xi_FTP,
                  self.Y_FTP ** (- 1),
                  self.W_NFK,
                  self.Gn_NFP) + self.eps
@@ -194,12 +198,12 @@ class Alpha_MNMF():
     def update_SM(self):
         # N x F x T x Pp x P
         num_SM = (self.C_1 *\
-                 xp.einsum("nft,ftq,ftq,fqp -> nfp",self.lambda_NFT,
-                 self.Y_FTQ ** (self.C_2) ,
-                 (self.X_FTQ ** 2) ,
+                 self.xp.einsum("nft,ftq,ftq,fqp -> nfp",self.lambda_NFT,
+                 self.Y_FTP ** (self.C_2) ,
+                 (self.X_FTP ** 2) ,
                  self.Psi_FPQ))
-        den_SM = self.xp.einsum("ftq,ftq,nft,fqp -> nfp",self.Xi_FTQ,
-                 self.Y_FTQ ** (- 1) ,
+        den_SM = self.xp.einsum("ftq,ftq,nft,fqp -> nfp",self.Xi_FTP,
+                 self.Y_FTP ** (- 1) ,
                  self.lambda_NFT ,
                  self.Psi_FPQ) + self.eps
         self.SM_NFP *= (num_SM/den_SM) ** (self.C_3)
@@ -209,14 +213,14 @@ class Alpha_MNMF():
     def update_Psi(self):  #il manque un psi dans le den??
         # N x F x T x Pp x P
         num_Psi = (self.C_1 *\
-                 xp.einsum("nft,ftq,ftq,nfp -> fqp",self.lambda_NFT,
+                 self.xp.einsum("nft,ftq,ftq,nfp -> fqp",self.lambda_NFT,
                  self.Y_FTP ** (self.C_2),
                  (self.X_FTP ** 2) ,
                  self.SM_NFP))
-        den_Psi = xp.einsum("ftq,ftq,nft,nfp,fqp -> fqp",(self.Xi_FTP,
+        den_Psi = self.xp.einsum("ftq,ftq,nft,nfp,fqp -> fqp",(self.Xi_FTP,
                  self.Y_FTP ** (- 1) ,
                  self.lambda_NFT,
-                 self.SM_NFP , self.Psi_FPQ) + self.eps
+                 self.SM_NFP , self.Psi_FPQ)) + self.eps
         self.Psi_FPQ *= (num_Psi/den_Psi) ** (self.C_3)
         self.reset_variable(type='Psi')
 
@@ -228,7 +232,7 @@ class Alpha_MNMF():
 
         elif type == 'SM' or type == 'Psi':
             self.Gn_NFP = self.xp.einsum("fpq,nfq->nfp",self.Psi_FPQ, self.SM_NFP)
-            self.Gn_NFP = wp.einsum("fqp,nfp->nfp",self.Psi_FPQ,
+            self.Gn_NFP = self.xp.einsum("fqp,nfp->nfp",self.Psi_FPQ,
                            self.SM_NFP)
             # self.Gn_NFP = (self.Psi_FPP[None] *
             #                self.SM_NP[:, None, None]).sum(axis=-1)
@@ -243,7 +247,7 @@ class Alpha_MNMF():
         self.compute_Xi()
         self.Xi_FTP = self.xp.clip(self.Xi_FTP, a_min=self.xp.exp(-16),
                                    a_max=self.xp.exp(16))
-        self.Y_FTP = xp.einsum("nfp,nft -> ftp",self.Gn_NFP, self.lambda_NFT)
+        self.Y_FTP = self.xp.einsum("nfp,nft -> ftp",self.Gn_NFP, self.lambda_NFT)
 
 
 
@@ -277,14 +281,14 @@ class Alpha_MNMF():
 
         Cste = float(4 * self.xp.pi / self.P)  # integration constant
 
-        WTh_NFTMP = xp.einsum("nftml,fpl -> nftmp",self.W_NFTMM.conj(),
+        WTh_NFTMP = self.xp.einsum("nftml,fpl -> nftmp",self.W_NFTMM.conj(),
                      self.Theta_FPM)
 
         # N F T "M" M M P
         tmpI1_1 = self.ThTh_FMMP[None, :, None, None] *\
               self.xp.abs(self.Theta_FPM.transpose(0, 2, 1)[None, :, None, :, None, None]
                - WTh_NFTMP[:, :, :, :, None, None] + self.eps) ** (self.alpha - 2.)
-        tmpI1_2 = xp.einsum("flmp,nftmp ->",self.ThTh_FMMP,
+        tmpI1_2 = self.xp.einsum("flmp,nftmp ->",self.ThTh_FMMP,
               self.xp.abs(WTh_NFTMP + self.eps) ** (self.alpha - 2.))
         I1 = tmpI1_1 - tmpI1_2
         I1 *= self.lambda_NFT[..., None, None, None, None]
@@ -298,12 +302,12 @@ class Alpha_MNMF():
         self.P_NFTMMM = Cste * (I1 + I2).sum(axis=-1)
 
     def update_Lagrange(self):
-        InvP_NFTMMM = xp.linalg.inv(self.P_NFTMMM)
-        Inv_FTMMM = xp.linalg.inv(InvP_NFTMMM.sum(axis=0))
+        InvP_NFTMMM = self.xp.linalg.inv(self.P_NFTMMM)
+        Inv_FTMMM = self.xp.linalg.inv(InvP_NFTMMM.sum(axis=0))
         if self.xp == "cp":
             InvP_NFTMMM = self.xp.array(InvP_NFTMMM)
             Inv_FTMMM = self.xp.array(Inv_FTMMM)
-        Id_FTMM =  xp.einsum("nftmlk,ftmlk->ftml",InvP_NFTMMM,InvFTMMM)
+        Id_FTMM =  self.xp.einsum("nftmlk,ftmlk->ftml",InvP_NFTMMM,InvFTMMM)
         self.La_FTMM += (Inv_FTMMM *
                          (self.W_NFTMM.sum(axis=0) - Id_FTMM)[:, :, :, None]).sum(axis=-1)
 
@@ -311,7 +315,7 @@ class Alpha_MNMF():
         Cste = float(4 * self.xp.pi / self.P)  # integration constant
         #WTh_NFTMP = (self.W_NFTMM[..., None].conj() * self.Theta_FPM.transpose(0, 2, 1)[None, :, None, None]).sum(axis=-2)
         
-        WTh_NFTMP = self.xp.einsum("nftml,fpl -> nftmp",self.W_NFTMM.conj(),Theta_FPM)
+        WTh_NFTMP = self.xp.einsum("nftml,fpl -> nftmp",self.W_NFTMM.conj(),self.Theta_FPM)
 
         # N F T M "M" P -> N F T "M" M
         R_NFTMM = Cste * self.xp.einsum("fmlp,nftmp,nft,nfp->nftm",(self.ThTh_FMMP, 
@@ -319,14 +323,14 @@ class Alpha_MNMF():
                     WTh_NFTMP[:, :, :, None] + self.eps) ** (self.alpha - 2.)  ,
                 self.lambda_NFT , self.SM_NFP))
 
-        InvP_NFTMMM = xp.linalg.inv(self.P_NFTMMM)
+        InvP_NFTMMM = self.xp.linalg.inv(self.P_NFTMMM)
         self.W_NFTMM = (InvP_NFTMMM * (R_NFTMM[:, :, :, :, None] - self.La_FTMM[None, :, :, :, None])).sum(axis=-1)
 
     def E_Step(self):
         del self.Psi_FPQ, self.Xi_FTP
         gc.collect()
-        mempool = self.xp.get_default_memory_pool()
-        mempool.free_all_blocks()
+        #mempool = self.xp.get_default_memory_pool()
+        #mempool.free_all_blocks()
 
         # Init variables
         self.W_NFTMM = self.xp.ones((self.n_source, self.n_freq, self.n_time, self.n_mic, self.n_mic)).astype(self.xp.complex64)
@@ -400,8 +404,9 @@ class Alpha_MNMF():
         self.make_filename_suffix()
 
         ll_array = []
-        f, ax = plt.subplots(2, 2)
-        for it in progressbar(range(self.n_iteration)):
+        f_, ax = plt.subplots(2, 2)
+        for it in range(self.n_iteration):
+            print(it)
             self.ac = it
             self.update_WH()
             self.update_SM()
