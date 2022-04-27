@@ -83,7 +83,7 @@ class Alpha_MNMF():
         unpickler = pkl.Unpickler(fileObject2)
         Theta = unpickler.load().astype(self.xp.complex64)
         fileObject2.close()
-        self.Theta_FPM = Theta
+        self.Theta_FPM = self.xp.asarray(Theta)
         self.Theta_FPM /= self.xp.linalg.norm(self.Theta_FPM, axis=-1, keepdims=True)
         #f_model = h5py.File(self.THETA_PATH + 'Theta_P={}-nfft={}.hdf5'.format(self.P, self.nfft), 'r')
         #self.Theta_FPM = self.xp.asarray(f_model['Theta_FPM'])[..., :self.n_mic].astype(self.xp.complex64)
@@ -95,10 +95,10 @@ class Alpha_MNMF():
     def init_Psi(self):
         file0 = open('./data/Theta_P={}-nfft={}.pkl'.format(self.P, self.nfft), 'rb')
         unpickler = pkl.Unpickler(file0)
-        Theta = unpickler.load().astype(self.xp.complex64)
+        Theta = self.xp.asarray(unpickler.load().astype(self.xp.complex64))
         #Theta = pkl.load(file0).astype(self.xp.complex64)
         file0.close()
-        self.Psi_FPQ = self.xp.abs(self.xp.einsum("fpm,fqm->fpq",self.Theta_FPM.conj(),Theta))
+        self.Psi_FPQ = self.xp.abs(self.xp.einsum("fpm,fqm->fpq",Theta.conj(),Theta))
         #f_model = h5py.File(self.PSI_PATH + 'Psi-nfft={}-alpha={}-M={}.hdf5'.format(self.nfft, self.alpha, self.n_mic), 'r')
         #self.Psi_FQP = self.xp.asarray(f_model['Psi_FPP']).astype(self.xp.float32)
         # phi_F = self.xp.sum(self.Psi_FPP * self.Psi_FPP, axis=(1, 2)) / self.P
