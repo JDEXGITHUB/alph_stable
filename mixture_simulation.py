@@ -57,8 +57,8 @@ room_dim = [8, 9]
 locations = [[2.5,3], [2.5, 6], [2.5,4.5] ]
 delays = [1., 0., 0.5]
 
-# create an anechoic room with sources and mics
-room = pra.ShoeBox(room_dim, fs=16000, max_order=15, absorption=0.9, sigma2_awgn=1e-8)
+# create an anechoic room with sources and mics  
+room = pra.ShoeBox(room_dim, fs=16000, max_order=0, absorption=0.9, sigma2_awgn=1e-8)
 
 # add mic and good source to room
 # Add silent signals to all sources

@@ -25,7 +25,7 @@ parser.add_argument(       '--n_fft', type= int, default=  1025, help='number of
 parser.add_argument(    '--n_speaker', type= int, default=    3, help='number of speaker')
 parser.add_argument(    '--n_mic', type= int, default=    2, help='number of microphones')
 parser.add_argument(     '--n_basis', type= int, default=     8, help='number of basis')
-parser.add_argument( '--n_iteration', type= int, default=   100, help='number of iteration')
+parser.add_argument( '--n_iteration', type= int, default=   2, help='number of iteration')
 parser.add_argument( '--n_inter', type= int, default=  200, help='number of intervals')
 parser.add_argument( '--alpha',   dest='alpha', type=float, default=1.8,  help='Gaussian case (alpha=2)')
 parser.add_argument( '--seed',   dest='seed', type=int, default=0,  help='random seed for experiments')

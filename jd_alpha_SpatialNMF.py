@@ -135,7 +135,6 @@ class Alpha_MNMF():
         # Fix and never updated
         self.X_FTP = self.xp.abs(self.xp.einsum("fpm , ftm -> ftp",self.Theta_FPM.conj(),
                                  self.X_FTM)).astype(self.xp.float32)
-        del self.Theta_FPM
         gc.collect()
         #mempool = self.xp.get_default_memory_pool()
         #mempool.free_all_blocks()
@@ -201,11 +200,11 @@ class Alpha_MNMF():
                  self.xp.einsum("nft,ftq,ftq,fqp -> nfp",self.lambda_NFT,
                  self.Y_FTP ** (self.C_2) ,
                  (self.X_FTP ** 2) ,
-                 self.Psi_FPQ))
+                 self.Psi_FPQ ** self.alpha))
         den_SM = self.xp.einsum("ftq,ftq,nft,fqp -> nfp",self.Xi_FTP,
                  self.Y_FTP ** (- 1) ,
                  self.lambda_NFT ,
-                 self.Psi_FPQ) + self.eps
+                 self.Psi_FPQ ** self.alpha) + self.eps
         self.SM_NFP *= (num_SM/den_SM) ** (self.C_3)
         # self.SM_NFP /= self.xp.max(self.SM_NFP, axis=-1)[:, :, None]
         self.reset_variable(type='SM')
@@ -220,7 +219,7 @@ class Alpha_MNMF():
         den_Psi = self.xp.einsum("ftq,ftq,nft,nfp,fqp -> fqp",(self.Xi_FTP,
                  self.Y_FTP ** (- 1) ,
                  self.lambda_NFT,
-                 self.SM_NFP , self.Psi_FPQ)) + self.eps
+                 self.SM_NFP , self.Psi_FPQ ** self.alpha)) + self.eps
         self.Psi_FPQ *= (num_Psi/den_Psi) ** (self.C_3)
         self.reset_variable(type='Psi')
 
@@ -240,8 +239,8 @@ class Alpha_MNMF():
             self.lambda_NFT = self.W_NFK @ self.H_NKT + self.eps
             self.lambda_NFT = self.xp.clip(self.lambda_NFT, a_min=self.xp.exp(-16),
                                            a_max=self.xp.exp(16))
-            self.Gn_NFP = (self.Psi_FPQ[None] *
-                           self.SM_NFP[:, :, None]).sum(axis=-1)
+            self.Gn_NFP = self.xp.einsum("fpq,nfq->nfp", self.Psi_FPQ,
+                           self.SM_NFP)
             # self.Gn_NFP = (self.Psi_FPP[None] *
             #                self.SM_NP[:, None, None]).sum(axis=-1)
         self.compute_Xi()
@@ -318,9 +317,8 @@ class Alpha_MNMF():
         WTh_NFTMP = self.xp.einsum("nftml,fpl -> nftmp",self.W_NFTMM.conj(),self.Theta_FPM)
 
         # N F T M "M" P -> N F T "M" M
-        R_NFTMM = Cste * self.xp.einsum("fmlp,nftmp,nft,nfp->nftm",(self.ThTh_FMMP, 
-                   self.xp.abs(self.Theta_FPM.transpose(0, 2, 1)[None, :, None, None] -
-                    WTh_NFTMP[:, :, :, None] + self.eps) ** (self.alpha - 2.)  ,
+        R_NFTMM = Cste * self.xp.einsum("fmlp,nftlp,nft,nfp->nftm",(self.ThTh_FMMP, 
+                   (WTh_NFTMP+ self.eps) ** (self.alpha - 2.)  ,
                 self.lambda_NFT , self.SM_NFP))
 
         InvP_NFTMMM = self.xp.linalg.inv(self.P_NFTMMM)
@@ -337,7 +335,7 @@ class Alpha_MNMF():
         self.W_NFTMM *= (self.xp.eye(self.n_mic)/self.n_source)[None, None, None]
         self.La_FTMM = self.xp.zeros((self.n_freq, self.n_time, self.n_mic, self.n_mic)).astype(self.xp.complex64)
         self.P_NFTMMM = self.rand_s.rand(self.n_source, self.n_freq, self.n_time, self.n_mic, self.n_mic, self.n_mic).astype(self.xp.complex64)
-        self.ThTh_FMMP = self.xp.einsum("fpm,fpm->fmlp",self.Theta_FPM.transpose(0, 2, 1) , self.Theta_FPM.transpose(0, 2, 1).conj())
+        self.ThTh_FMMP = self.xp.einsum("fpm,fpl->fmlp",self.Theta_FPM , self.Theta_FPM.conj())
         Id_NFTMMM = self.xp.ones((self.n_source, self.n_freq, self.n_time,
                                   self.n_mic, self.n_mic, self.n_mic)) *\
                     self.xp.eye(self.n_mic)[None, None, None, None]
