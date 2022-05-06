@@ -51,10 +51,10 @@ for i in range(len(signals)):
 # =============================================================================
 
 # Room 4m by 6m
-room_dim = [8, 9]
+room_dim = [8, 9, 3]
 
 # source locations and delays
-locations = [[2.5,3], [2.5, 6], [2.5,4.5] ]
+locations = [[2.5,3, 1.5], [2.5, 6,1.5], [2.5,4.5,1.5] ]
 delays = [1., 0., 0.5]
 
 # create an anechoic room with sources and mics  
@@ -66,7 +66,7 @@ for sig, d, loc in zip(signals, delays, locations):
     room.add_source(loc, signal=sig, delay=d)
 
 # add microphone array
-room.add_microphone_array(pra.MicrophoneArray(np.c_[[6.5, 4.49], [6.5, 4.51]], room.fs))  #, [6.01 ,4.5 ], [7.0, 4.6], [3.0,3.0] , [4.3, 5.6]
+room.add_microphone_array(pra.MicrophoneArray(np.c_[[6.5, 4.49,1.5], [6.5, 4.51,1.5]], room.fs))  #, [6.01 ,4.5 ], [7.0, 4.6], [3.0,3.0] , [4.3, 5.6]
 
 
 #%%
