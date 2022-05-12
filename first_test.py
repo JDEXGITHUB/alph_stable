@@ -10,6 +10,7 @@ import os
 import librosa
 import soundfile as sf
 import pickle as pkl
+import ipdb
 
 from jd_alpha_SpatialNMF import Alpha_MNMF
 
@@ -17,7 +18,7 @@ import argparse
 
 import glob as glob
 
-nfft = 1024
+nfft = 512
 
 parser = argparse.ArgumentParser()
 parser.add_argument(         '--gpu', type= int, default=     0, help='GPU ID')
@@ -40,7 +41,7 @@ parser.add_argument('--update_psi',   dest='update_psi', action='store_true',  h
 args = parser.parse_args()
 
 for id_file in range(args.id_min, args.id_max):
-
+    # if you have a gpu, it will use cupy instead of numpy
     if args.gpu <= 0:
         import numpy as xp
     else: 
@@ -53,6 +54,7 @@ for id_file in range(args.id_min, args.id_max):
                                                           args.n_speaker,
                                                           args.alpha))
     
+    # Unpickle the mixture created by mixture_simulation.py
     fileObject2 = open('./data/audio/out/mixture_nfft={}.pkl'.format(nfft), 'rb')
     unpickler = pkl.Unpickler(fileObject2)
     mix_spec = unpickler.load().astype(np.complex64)
@@ -63,6 +65,8 @@ for id_file in range(args.id_min, args.id_max):
     else:
         method_name = 'Alpha_MNMF'
     
+    
+    # Solver that save parameters if True, save a wave file if True, at the path save_Path
     Separater = Alpha_MNMF(alpha=args.alpha,
                                        n_basis=args.n_basis, n_source= args.n_speaker,
                                        nb_Theta=args.n_Th, seed=args.seed,

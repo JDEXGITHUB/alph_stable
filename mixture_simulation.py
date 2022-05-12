@@ -19,6 +19,7 @@ import pickle as pkl
 import time
 
 save = True
+oracle = True
 #%%
 # =============================================================================
 # Audios
@@ -26,7 +27,7 @@ save = True
 
 # concatanate audio samples to make them look long enough
 wav_files = [
-        ['./data/audio/in/test_bass.wav',],
+        #['./data/audio/in/test_bass.wav',],
         ['./data/audio/in/test_piano.wav',],
         ['./data/audio/in/test_sax.wav',]
         ]
@@ -55,7 +56,7 @@ room_dim = [8, 9, 3]
 
 # source locations and delays
 locations = [[2.5,3, 1.5], [2.5, 6,1.5], [2.5,4.5,1.5] ]
-delays = [1., 0., 0.5]
+delays = [0., 0., 0.]
 
 # create an anechoic room with sources and mics  
 room = pra.ShoeBox(room_dim, fs=16000, max_order=0, absorption=0.9, sigma2_awgn=1e-8)
@@ -91,18 +92,28 @@ mics_signals /= np.max(mics_signals)
 
 
 # STFT parameters
-L = 2048
+L = 1024
 hop = L // 4
 win_a = pra.hamming(L)
 win_s = pra.transform.stft.compute_synthesis_window(win_a, hop)
 
+
+
 # Observation vector in the STFT domain
 X = pra.transform.stft.analysis(mics_signals.T, L, hop, win=win_a)
+t,f,m = X.shape
+
+if oracle:
+    X_2 = np.empty((len(wav_files),t,f,m)).astype(np.complex64)
+    for n in range(len(wav_files)):
+        X_2[0] = pra.transform.stft.analysis(separate_recordings[0].T, L, hop, win=win_a)
+        X_2[1] = pra.transform.stft.analysis(separate_recordings[1].T, L, hop, win=win_a)
+    X_2 = X_2.transpose(0,2,1,3)
 X = X.transpose(1,0,2)
-X = X[:-1,:,:]
+X = X[:,:,:]
 
 # Reference signal to calculate performance of BSS
-ref = separate_recordings[ : , 0 , :]
+#ref = separate_recordings[ : , 0 , :]
 
 
 #%%
@@ -112,11 +123,17 @@ ref = separate_recordings[ : , 0 , :]
 # =============================================================================
 
 save_path = './data/audio/out/'
+filename_oracle = ".pkl"
+if oracle :
+  filename_oracle = "-oracle" + filename_oracle
 
-nfft = L // 2
 
-f_model = open(save_path+'mixture_nfft={}.pkl'.format(nfft), 'wb')
+nfft = L // 2 
 
-if save:
-    pkl.dump(X, f_model)
-    f_model.close()
+f_model = open((save_path + 'mixture_nfft={}' + filename_oracle).format(nfft), 'wb')
+
+if oracle:
+    pkl.dump(X_2[:,:-1,:450,:], f_model)
+else:
+    pkl.dump(X[:-1,:450,:], f_model)
+f_model.close()
