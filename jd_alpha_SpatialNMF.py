@@ -127,9 +127,7 @@ class Alpha_MNMF():
         self.SM_NFP = self.xp.asarray(gamma)
         
         self.Gn_NFP = self.xp.einsum("fpq,nfp->nfq",self.Psi_FPQ, self.SM_NFP)
-        #self.Gn_NFP = (self.Psi_FPP[None] * self.SM_NFP[:, :, None]).sum(axis=-1)
-        # self.Gn_NFP = (self.Psi_FPP[None] * self.SM_NP[:, None, None]).sum(axis=-1) + self.eps
-        # self.Gn_NFP /= self.Gn_NFP.sum(axis=-1)[:, :, None]
+
 
     def init_WH(self):
         self.W_NFK = self.xp.abs(self.rand_s.randn(self.n_source, self.n_freq, self.n_basis)).astype(self.xp.float32)
@@ -418,8 +416,8 @@ class Alpha_MNMF():
         f_, ax = plt.subplots(2, 2)
         end = -1
         for it in range(self.n_iteration):
-            if self.oracle:
-                break
+            # if self.oracle:
+            #     break
             print(it)
             #ipdb.set_trace()
             self.ac = it
