@@ -16,14 +16,14 @@ P = 72
 nfft = 512
 M = 2
 c = 340 # velocity of sound in air (in m/s)
-fs = 16000 # in Hertz
+fs = 44100 # in Hertz
 N = 2   #number of sources
 oracle = True
 
 
 nx, ny = (6, 6)   # 6*6=P//2
-x = np.linspace(0, 8, nx)
-y = np.linspace(0, 6.5, ny)
+x = np.linspace(1.5, 3, nx)
+y = np.linspace(2, 7, ny)
 xv, yv = np.meshgrid(x, y)
 
 P_pos_PT = np.array([xv,yv,1.5 * np.ones((nx,ny))])
@@ -50,8 +50,10 @@ for f in range(nfft):
     Theta_FPM[f,:P//2,:] = 1/np.sqrt(Dist_flat_PM)*np.exp(-1j*Dist_flat_PM*f*fs/2/c)
     Theta_FPM[f,P//2:,:] = -1/np.sqrt(Dist_flat_PM)*np.exp(+1j*np.sqrt(Dist_flat_PM)*f*fs/2/c)
     if oracle:
-        gamma_NFP[0,f,15] = 1.
-        gamma_NFP[1,f,16] = 1.
+        gamma_NFP[0,f,10] = 1.   # source 0 : (x = 2.5 , y = 3 , z = 1.5)
+        gamma_NFP[0,f,46] = 1.   # gamma symetric, p_1 + 36 = p_1
+        gamma_NFP[1,f,28] = 1.   # source 1 : (x = 2.5 , y = 6 , z = 1.5)
+        gamma_NFP[1,f,64] = 1.
 
 
 pkl.dump(Theta_FPM, f_model)

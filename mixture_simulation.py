@@ -55,7 +55,7 @@ for i in range(len(signals)):
 room_dim = [8, 9, 3]
 
 # source locations and delays
-locations = [[2.5,3, 1.5], [2.5, 6,1.5], [2.5,4.5,1.5] ]
+locations = [[2.5,3, 1.5], [2.5, 6,1.5] ]  # , [2.5,4.5,1.5]
 delays = [0., 0., 0.]
 
 # create an anechoic room with sources and mics  

@@ -55,7 +55,7 @@ class Alpha_MNMF():
         if acoustic_model == 'far':
             self.THETA_PATH = "./data/"
         self.seed = seed
-        self.nE_it = 300
+        self.nE_it = 500
         self.xp = xp
         self.ac_model = acoustic_model
         self.nfft = 512
@@ -171,7 +171,6 @@ class Alpha_MNMF():
         self.Xi_FTP *= tmp_FTP
         self.Xi_FTP /= (Z_FTP * tmp_FTP + self.eps).sum(axis=-1)[..., None].astype(self.xp.float32)
 
-
 # update parameters
     def update_WH(self):
         # N x F x K x T x Pp
@@ -254,8 +253,6 @@ class Alpha_MNMF():
                                    a_max=self.xp.exp(16))
         self.Y_FTP = self.xp.einsum("nfp,nft -> ftp",self.Gn_NFP, self.lambda_NFT)
 
-
-
     def normalize(self):
         # if self.update_psi:
         # phi_FP = self.xp.sum(self.Psi_FPP * self.Psi_FPP, axis=1) / self.P
@@ -305,14 +302,20 @@ class Alpha_MNMF():
         self.P_NFTMMM = Cste * (I1 + I2).sum(axis=-1)
 
     def update_Lagrange(self):
+        Id_NFTMMM = self.xp.ones((self.n_source, self.n_freq, self.n_time,
+                                  self.n_mic, self.n_mic, self.n_mic)) *\
+                    self.xp.eye(self.n_mic)[None, None, None, None]
         InvP_NFTMMM = self.xp.linalg.inv(self.P_NFTMMM)
         Inv_FTMMM = self.xp.linalg.inv(InvP_NFTMMM.sum(axis=0))
         if self.xp == "cp":
             InvP_NFTMMM = self.xp.array(InvP_NFTMMM)
             Inv_FTMMM = self.xp.array(Inv_FTMMM)
-        Id_FTMM =  self.xp.einsum("nftmlk,ftmlk->ftml",InvP_NFTMMM,Inv_FTMMM)
+        #Id_FTMM =  self.xp.einsum("nftmlk,ftmlk->ftml",InvP_NFTMMM,Inv_FTMMM)
+        # Id_FTMM = self.xp.einsum("ft, ml -> ftml",self.xp.eye(self.n_freq, self.n_time)
+        #                         , self.xp.eye(self.n_mic))
+        #Id_FTMM = self.xp.ones((self.n_freq, self.n_time, self.n_mic, self.n_mic))
         self.La_FTMM += self.xp.einsum("ftmlk, ftmk -> ftml",Inv_FTMMM ,
-                         (self.W_NFTMM.sum(axis=0) - Id_FTMM))
+                         (self.W_NFTMM.sum(axis=0) - Id_NFTMMM[0,:,:,0]))
 
     def update_W(self):
         Cste = float(4 * self.xp.pi / self.P)  # integration constant
@@ -344,6 +347,7 @@ class Alpha_MNMF():
         Id_NFTMMM = self.xp.ones((self.n_source, self.n_freq, self.n_time,
                                   self.n_mic, self.n_mic, self.n_mic)) *\
                     self.xp.eye(self.n_mic)[None, None, None, None]
+        cov_array = []
         for it in range(self.nE_it):
             print("filtrage iteration = {}".format(it))
             self.update_P()
@@ -354,6 +358,15 @@ class Alpha_MNMF():
             self.La_FTMM[self.xp.isnan(self.La_FTMM)] = self.eps
             self.update_W()
             self.W_NFTMM[self.xp.isnan(self.W_NFTMM)] = self.eps
+            if self.save_cov and (it > 10) and(it % 50 == 0):
+                self.cov_res = self.calculate_covariation()
+                #ipdb.set_trace()
+                cov_array.append(self.cov_res)
+                for n in range(self.n_source):
+                    #cov_array.append(self.cov_res)
+                    #ipdb.set_trace()
+                    plt.plot(cov_array)
+                    plt.show()
         #ipdb.set_trace()
         self.Y_NFTM = self.xp.einsum("nftml,ftl->nftm", self.W_NFTMM.conj() , self.X_FTM)
 
@@ -367,6 +380,22 @@ class Alpha_MNMF():
         ll_value = (self.xp.log(tmp_FTP.sum(axis=-1) + self.eps)).sum()
 
         return self.convert_to_NumpyArray(ll_value)
+
+    def calculate_covariation(self):
+        
+        WTh_NFTMP = self.xp.einsum("nftml, fpl -> nftmp",self.W_NFTMM.conj(),
+                     self.Theta_FPM)
+                     
+        tmp1 = self.xp.einsum("nftmp, nft, nfp -> n", 
+                self.xp.abs(self.Theta_FPM.transpose(0, 2, 1)[None, :, None, :] - WTh_NFTMP) ** self.alpha
+                - self.xp.abs(WTh_NFTMP)** self.alpha , self.lambda_NFT , self.SM_NFP)
+        
+        tmp2 = self.xp.einsum("nftmp, nft, nfp -> n",
+                self.xp.abs(WTh_NFTMP) ** self.alpha , self.lambda_NFT , self.SM_NFP )
+        
+        cov = tmp1 - tmp2 
+        
+        return self.convert_to_NumpyArray(cov.mean())
 
     def make_filename_suffix(self):
         self.filename_suffix = "M={}-S={}-K={}-it={}".format(self.n_mic, self.n_source, self.n_basis, self.n_iteration)
@@ -384,6 +413,7 @@ class Alpha_MNMF():
             return self.xp.asnumpy(data)
 
     def solve(self, n_iteration=100, save_likelihood=False,
+              save_cov=False,
               save_parameter=False, save_wav=True,
               save_path="./", interval_save_parameter=10):
         """
@@ -401,6 +431,7 @@ class Alpha_MNMF():
         """
 
         # Initialization
+        self.save_cov = save_cov
         self.n_iteration = n_iteration
         self.save_path = save_path
         self.init_Theta()
@@ -408,6 +439,7 @@ class Alpha_MNMF():
         self.init_SM()
         self.init_WH()
         if self.oracle:
+            self.X_NFTM = self.X_FTM
             self.X_FTM = self.xp.einsum('nftp -> ftp',self.X_FTM)
         self.init_auxfunc()
         self.make_filename_suffix()

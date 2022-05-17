@@ -83,5 +83,5 @@ for id_file in range(args.id_min, args.id_max):
     Separater.file_id = id_file
     Separater.solve(n_iteration=args.n_iteration, save_likelihood=False,
                                 save_parameter=False, save_wav=True,
-                                save_path=SAVE_PATH,
+                                save_path=SAVE_PATH, save_cov=True,
                                 interval_save_parameter=args.n_inter)
