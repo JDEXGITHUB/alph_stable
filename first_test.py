@@ -50,22 +50,17 @@ for id_file in range(args.id_min, args.id_max):
         import cupy as xp
         print("Use GPU " + str(args.gpu))
         #xp.cuda.Device(args.gpu).use()
-    filename_oracle = ".pkl"
-    if args.oracle :
-      filename_oracle = "-oracle" + filename_oracle
+
     SAVE_PATH = os.path.join("./data/audio/out/",
                                  "{}_{}/alpha={}/".format(args.type,
                                                           args.n_speaker,
                                                           args.alpha))
     
-    fileObject2 = open(('./data/audio/out/mixture_nfft={}' + filename_oracle ).format(nfft), 'rb')
+    fileObject2 = open(('./data/audio/out/down-mixture_nfft={}.pkl' ).format(nfft), 'rb')
     unpickler = pkl.Unpickler(fileObject2)
     mix_spec = unpickler.load().astype(np.complex64)
     fileObject2.close()
-    if args.oracle:
-      mix_spec = xp.asarray(mix_spec[:,:,:300,:])
-    else:
-      mix_spec = xp.asarray(mix_spec[:,:300,:])
+    mix_spec = xp.asarray(mix_spec[:,:,:260,:])
     
     
     if args.update_psi:
@@ -77,11 +72,11 @@ for id_file in range(args.id_min, args.id_max):
                                        n_basis=args.n_basis, n_source= args.n_speaker,
                                        nb_Theta=args.n_Th, seed=args.seed,
                                        xp=xp, acoustic_model='far',
-                                       update_psi=args.update_psi,
+                                       update_psi=True,
                                        oracle=args.oracle)
     Separater.load_spectrogram(mix_spec)
     Separater.file_id = id_file
-    Separater.solve(n_iteration=args.n_iteration, save_likelihood=False,
+    Separater.solve(n_iteration=args.n_iteration, save_likelihood=True,
                                 save_parameter=False, save_wav=True,
-                                save_path=SAVE_PATH, save_cov=True,
+                                save_path=SAVE_PATH, save_cov=False,
                                 interval_save_parameter=args.n_inter)

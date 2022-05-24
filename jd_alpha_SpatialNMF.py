@@ -17,6 +17,12 @@ import soundfile as sf
 
 import gc
 import matplotlib.pyplot as plt
+import mir_eval.separation
+
+from tempfile import mkdtemp
+import os.path as path
+
+import tracemalloc
 
 class Alpha_MNMF():
     def __init__(self, alpha=1.8, n_source=2, n_basis=8, nb_Theta=72, seed=1,
@@ -65,20 +71,17 @@ class Alpha_MNMF():
         index = np.argmin(np.abs(file['Alpha']-self.alpha))
         (a1, a2, a3, a4) = tuple(file['Eta_den_coeff'][index])
         self.a_4 = self.xp.array([a1, a2, a3, a4])
-    def load_spectrogram(self, X_FTM):
+        
+    def load_spectrogram(self, X_NFTM):
         """ load complex spectrograms
 
         Parameters:
         -----------
-            X_FTM: self.xp.array [ F x T x M ]
+            X_NFTM: self.xp.array [ N x F x T x M ]
                 complex spectrogram of observed signals
-                except for oracle case: self.xp.array [ N x F x T x M ]
         """
-        if self.oracle:
-            self.n_source, self.n_freq, self.n_time, self.n_mic = X_FTM.shape
-        else:
-            self.n_freq, self.n_time, self.n_mic = X_FTM.shape
-        self.X_FTM = self.xp.asarray(X_FTM, dtype=self.xp.complex64)
+        self.n_source, self.n_freq, self.n_time, self.n_mic = X_NFTM.shape
+        self.X_NFTM = self.xp.asarray(X_NFTM, dtype=self.xp.complex64)
 
 # Initialization of parameters
 
@@ -89,8 +92,7 @@ class Alpha_MNMF():
         fileObject2.close()
         self.Theta_FPM = self.xp.asarray(Theta)
         self.Theta_FPM /= self.xp.linalg.norm(self.Theta_FPM, axis=-1, keepdims=True)
-
-
+        
 
     def init_Psi(self):
         file0 = open('./data/Theta_P={}-nfft={}.pkl'.format(self.P, self.nfft), 'rb')
@@ -98,43 +100,38 @@ class Alpha_MNMF():
         Theta = self.xp.asarray(unpickler.load().astype(self.xp.complex64))
         #Theta = pkl.load(file0).astype(self.xp.complex64)
         file0.close()
-        self.Psi_FPQ = self.xp.abs(self.xp.einsum("fpm,fqm->fpq",Theta.conj(),Theta))
+        self.Psi_FQP = self.xp.abs(self.xp.einsum("fpm,fqm->fpq",Theta.conj(),Theta))
         #f_model = h5py.File(self.PSI_PATH + 'Psi-nfft={}-alpha={}-M={}.hdf5'.format(self.nfft, self.alpha, self.n_mic), 'r')
         #self.Psi_FQP = self.xp.asarray(f_model['Psi_FPP']).astype(self.xp.float32)
         # phi_F = self.xp.sum(self.Psi_FPP * self.Psi_FPP, axis=(1, 2)) / self.P
         # self.Psi_FPP = self.Psi_FPP / self.xp.sqrt(phi_F)[:, None, None]
 
+
     def init_SM(self):
 
-        # self.SM_NFP = self.xp.ones((self.n_source,
-        #                             self.n_freq,
-        #                             self.P)).astype(self.xp.float32)
-        # self.SM_NP = self.xp.ones((self.n_source,
-        #                             self.P)).astype(self.xp.float32) + self.eps
-        # self.SM_NP = self.xp.zeros((self.n_source,
-        #                            self.P)).astype(self.xp.float32) + 1e-2
         # self.SM_NFP = self.xp.zeros((self.n_source,
         #                             self.n_freq,
         #                             self.P)).astype(self.xp.float32) + self.eps
         # quo = self.P // self.n_source
         # for n in range(self.n_source):
         #     self.SM_NFP[n, :, n * quo] = 1
-        # print(self.Psi_FPQ.shape, self.SM_NFP.shape)
+        # print(self.Psi_FQP.shape, self.SM_NFP.shape)
         fileObject3 = open('./data/gamma_P={}-nfft={}-N={}.pkl'.format(self.P, self.nfft,self.n_source), 'rb')
         unpickler = pkl.Unpickler(fileObject3)
         gamma = unpickler.load().astype(self.xp.float32)
         fileObject3.close()
         self.SM_NFP = self.xp.asarray(gamma)
-        
-        self.Gn_NFP = self.xp.einsum("fpq,nfp->nfq",self.Psi_FPQ, self.SM_NFP)
+        self.Gn_NFP = self.xp.einsum("fpq,nfp->nfq",self.Psi_FQP, self.SM_NFP)
 
 
     def init_WH(self):
         self.W_NFK = self.xp.abs(self.rand_s.randn(self.n_source, self.n_freq, self.n_basis)).astype(self.xp.float32)
         self.H_NKT = self.xp.abs(self.rand_s.randn(self.n_source, self.n_basis, self.n_time)).astype(self.xp.float32)
-        self.lambda_NFT = self.W_NFK @ self.H_NKT
         if self.oracle:
-            self.lambda_NFT = 1/self.n_mic * np.einsum("nftm -> nft", self.xp.abs(self.X_FTM)**self.alpha)
+            self.lambda_NFT = 1/self.n_mic * self.xp.einsum("nftm -> nft", self.xp.abs(self.X_NFTM)**self.alpha)
+            self.lambda_NFT /= self.xp.max(self.lambda_NFT)
+        else:
+            self.lambda_NFT = self.W_NFK @ self.H_NKT
 
 
     def init_auxfunc(self):
@@ -142,8 +139,8 @@ class Alpha_MNMF():
         self.X_FTP = self.xp.abs(self.xp.einsum("fpm , ftm -> ftp",self.Theta_FPM.conj(),
                                  self.X_FTM)).astype(self.xp.float32)
         gc.collect()
-        #mempool = self.xp.get_default_memory_pool()
-        #mempool.free_all_blocks()
+        mempool = self.xp.get_default_memory_pool()
+        mempool.free_all_blocks()
         self.b_3 = self.xp.asarray([float(4. - 2. * (i-1) + 2*self.n_mic) for i in range(1,4)])
         self.b_3 /= self.alpha
         self.C_1 = 2 * self.a_4[-1] / self.alpha
@@ -170,63 +167,105 @@ class Alpha_MNMF():
                               (self.Y_FTP ** (2. / self.alpha)))
         self.Xi_FTP *= tmp_FTP
         self.Xi_FTP /= (Z_FTP * tmp_FTP + self.eps).sum(axis=-1)[..., None].astype(self.xp.float32)
+        del Z_FTP
 
 # update parameters
     def update_WH(self):
-        # N x F x K x T x Pp
+        # N x F x K 
+        filename = path.join(mkdtemp(), 'num_W.dat')
+        num_W = np.memmap(filename, dtype='complex64', mode='w+', shape=(self.n_source,self.n_freq,self.n_time))
+        
         num_W = (self.C_1 *\
-                 self.xp.einsum("nkt,ftp,ftp,nfp -> nfk",self.H_NKT,
-                 self.Y_FTP ** (self.C_2),
-                 self.X_FTP ** 2,
+                 self.xp.einsum("ftp,nfp -> nft",
+                 self.Y_FTP ** (self.C_2) * self.X_FTP ** 2,
                  self.Gn_NFP))
-        den_W = self.xp.einsum("ftp,ftp,nkt,nfp -> nfk",self.Xi_FTP,
-                 self.Y_FTP ** (- 1),
-                 self.H_NKT,
-                 self.Gn_NFP) + self.eps
-        self.W_NFK *= (num_W/den_W) ** self.C_3
+        
+        filename2 = path.join(mkdtemp(), 'num_W2.dat')     
+        num_W2 = np.memmap(filename2, dtype='complex64', mode='w+', shape=(self.n_source,self.n_freq,self.n_basis))
+        num_W2 = self.xp.einsum("nkt,nft -> nfk", self.H_NKT, num_W)
+        
+        filename3 = path.join(mkdtemp(), 'den_W.dat')     
+        den_W = np.memmap(filename3, dtype='complex64', mode='w+', shape=(self.n_source,self.n_freq,self.n_time))
+        den_W = self.xp.einsum("ftp,nfp -> nft",
+                self.Xi_FTP * self.Y_FTP ** (- 1),
+                self.Gn_NFP) + self.eps
+        filename4 = path.join(mkdtemp(), 'den_W2.dat')     
+        den_W2 = np.memmap(filename4, dtype='complex64', mode='w+', shape=(self.n_source,self.n_freq,self.n_basis))
+        den_W2 = self.xp.einsum("nkt,nft -> nfk", self.H_NKT, den_W)
+        self.W_NFK *= (num_W2/den_W2) ** self.C_3
         self.reset_variable(type='NMF')
-        # N x F x K x T x Pp
+        
+        # N x K x T 
 
+        filename5 = path.join(mkdtemp(), 'num_H.dat')     
+        num_H = np.memmap(filename5, dtype='complex64', mode='w+', shape=(self.n_source,self.n_freq,self.n_time))
         num_H = (self.C_1 *\
-                 self.xp.einsum("nfk,ftp,ftp,nfp -> nkt",self.W_NFK,
-                 self.Y_FTP ** (self.C_2),
-                 self.X_FTP ** 2,
+                 self.xp.einsum("ftp,nfp -> nft",
+                 self.Y_FTP ** (self.C_2) * self.X_FTP ** 2,
                  self.Gn_NFP))
-        den_H = self.xp.einsum("ftp,ftp,nfk,nfp -> nkt",self.Xi_FTP,
-                 self.Y_FTP ** (- 1),
-                 self.W_NFK,
+        filename6 = path.join(mkdtemp(), 'num_H2.dat')     
+        num_H2 = np.memmap(filename6, dtype='complex64', mode='w+', shape=(self.n_source,self.n_basis,self.n_time))
+        num_H2 =  self.xp.einsum("nfk,nft -> nkt", self.W_NFK, num_H)
+        
+        filename7 = path.join(mkdtemp(), 'den_H.dat')     
+        den_H = np.memmap(filename7, dtype='complex64', mode='w+', shape=(self.n_source,self.n_freq,self.n_time))
+        den_H =  self.xp.einsum("ftp,nfp -> nft",
+                 self.Xi_FTP * self.Y_FTP ** (- 1),
                  self.Gn_NFP) + self.eps
-        self.H_NKT *= (num_H/den_H) ** self.C_3
+        filename8 = path.join(mkdtemp(), 'den_H2.dat')     
+        den_H2 = np.memmap(filename8, dtype='complex64', mode='w+', shape=(self.n_source,self.n_basis,self.n_time))
+        den_H2 = self.xp.einsum("nfk,nft -> nkt", self.W_NFK, den_H)
+                 
+        self.H_NKT *= (num_H2/den_H2) ** self.C_3
         self.reset_variable(type='NMF')
+        del num_W, num_H, den_W, den_H, num_W2, num_H2, den_W2, den_H2
 
     def update_SM(self):
         # N x F x T x Pp x P
+        filename = path.join(mkdtemp(), 'num_SM.dat')     
+        num_SM = np.memmap(filename, dtype='complex64', mode='w+', shape=(self.n_freq,self.n_time,self.P))
         num_SM = (self.C_1 *\
-                 self.xp.einsum("nft,ftq,ftq,fqp -> nfp",self.lambda_NFT,
-                 self.Y_FTP ** (self.C_2) ,
-                 (self.X_FTP ** 2) ,
-                 self.Psi_FPQ ** self.alpha))
-        den_SM = self.xp.einsum("ftq,ftq,nft,fqp -> nfp",self.Xi_FTP,
-                 self.Y_FTP ** (- 1) ,
-                 self.lambda_NFT ,
-                 self.Psi_FPQ ** self.alpha) + self.eps
-        self.SM_NFP *= (num_SM/den_SM) ** (self.C_3)
+                 self.xp.einsum("ftq,fqp -> ftp",
+                 self.Y_FTP ** (self.C_2) * self.X_FTP ** 2 ,
+                 self.Psi_FQP ** self.alpha))
+        
+        filename2 = path.join(mkdtemp(), 'num_SM2.dat')     
+        num_SM2 = np.memmap(filename2, dtype='complex64', mode='w+', shape=(self.n_source,self.n_freq,self.P))
+        num_SM2 = self.xp.einsum("nft,ftp -> nfp", self.lambda_NFT, num_SM)
+        
+        filename3 = path.join(mkdtemp(), 'den_SM.dat')     
+        den_SM = np.memmap(filename3, dtype='complex64', mode='w+', shape=(self.n_freq,self.n_time,self.P))
+        den_SM = self.xp.einsum("ftq,fqp -> ftp",
+                 self.Xi_FTP * self.Y_FTP ** (- 1) ,
+                 self.Psi_FQP ** self.alpha) + self.eps
+        
+        filename4 = path.join(mkdtemp(), 'den_SM2.dat')     
+        den_SM2 = np.memmap(filename4, dtype='complex64', mode='w+', shape=(self.n_freq,self.n_time,self.P))
+        den_SM2 = self.xp.einsum("ftp,nft -> nfp", den_SM, self.lambda_NFT)
+        
+        self.SM_NFP *= (num_SM2/den_SM2) ** (self.C_3)
         # self.SM_NFP /= self.xp.max(self.SM_NFP, axis=-1)[:, :, None]
         self.reset_variable(type='SM')
+        del num_SM, den_SM, num_SM2, den_SM2, filename1, filename2, filename3, filename4
 
     def update_Psi(self):  #il manque un psi dans le den??
         # N x F x T x Pp x P
+        filename = path.join(mkdtemp(), 'num_Psi.dat') 
+        num_Psi = np.memmap(filename, dtype='complex64', mode='w+', shape=(self.n_freq,self.P,self.P))
         num_Psi = (self.C_1 *\
-                 self.xp.einsum("nft,ftq,ftq,nfp -> fqp",self.lambda_NFT,
-                 self.Y_FTP ** (self.C_2),
-                 (self.X_FTP ** 2) ,
-                 self.SM_NFP))
-        den_Psi = self.xp.einsum("ftq,ftq,nft,nfp,fqp -> fqp",(self.Xi_FTP,
-                 self.Y_FTP ** (- 1) ,
+                 self.xp.einsum("nft,ftq,nfp -> fqp",
                  self.lambda_NFT,
-                 self.SM_NFP , self.Psi_FPQ ** self.alpha)) + self.eps
-        self.Psi_FPQ *= (num_Psi/den_Psi) ** (self.C_3)
+                 self.Y_FTP ** (self.C_2) * (self.X_FTP ** 2) ,
+                 self.SM_NFP))
+        filename2 = path.join(mkdtemp(), 'den_Psi.dat') 
+        den_Psi = np.memmap(filename2, dtype='complex64', mode='w+', shape=(self.n_freq,self.P,self.P))
+        den_Psi = self.xp.einsum("ftq,nft,nfp,fqp -> fqp",
+                 self.Xi_FTP * self.Y_FTP ** (- 1) ,
+                 self.lambda_NFT,
+                 self.SM_NFP , self.Psi_FQP ** self.alpha) + self.eps
+        self.Psi_FQP *= (num_Psi/den_Psi) ** (self.C_3)
         self.reset_variable(type='Psi')
+        del num_Psi, den_Psi
 
     def reset_variable(self, type):
         if type == 'NMF':
@@ -235,19 +274,15 @@ class Alpha_MNMF():
                                            a_max=self.xp.exp(16))
 
         elif type == 'SM' or type == 'Psi':
-            self.Gn_NFP = self.xp.einsum("fpq,nfq->nfp",self.Psi_FPQ, self.SM_NFP)
-            self.Gn_NFP = self.xp.einsum("fqp,nfp->nfp",self.Psi_FPQ,
+            self.Gn_NFP = self.xp.einsum("fpq,nfq->nfp",self.Psi_FQP, self.SM_NFP)
+            self.Gn_NFP = self.xp.einsum("fqp,nfp->nfp",self.Psi_FQP,
                            self.SM_NFP)
-            # self.Gn_NFP = (self.Psi_FPP[None] *
-            #                self.SM_NP[:, None, None]).sum(axis=-1)
         elif type == 'all':
             self.lambda_NFT = self.W_NFK @ self.H_NKT + self.eps
             self.lambda_NFT = self.xp.clip(self.lambda_NFT, a_min=self.xp.exp(-16),
                                            a_max=self.xp.exp(16))
-            self.Gn_NFP = self.xp.einsum("fpq,nfq->nfp", self.Psi_FPQ,
+            self.Gn_NFP = self.xp.einsum("fpq,nfq->nfp", self.Psi_FQP,
                            self.SM_NFP)
-            # self.Gn_NFP = (self.Psi_FPP[None] *
-            #                self.SM_NP[:, None, None]).sum(axis=-1)
         self.compute_Xi()
         self.Xi_FTP = self.xp.clip(self.Xi_FTP, a_min=self.xp.exp(-16),
                                    a_max=self.xp.exp(16))
@@ -287,24 +322,27 @@ class Alpha_MNMF():
                      self.Theta_FPM)
 
         # N F T "M" M M P
-        tmpI1_1 = self.xp.einsum("flkp, nftmp -> nftmlkp",self.ThTh_FMMP,
+        filename = path.join(mkdtemp(), 'tmpI1.dat')     
+        tmpI1 = np.memmap(filename, dtype='complex64', mode='w+', shape=(self.n_source,self.n_freq,self.n_time,self.n_mic,self.n_mic,self.n_mic,self.P))
+        tmpI1 = self.xp.einsum("flkp, nftmp -> nftmlkp",self.ThTh_FMMP,
               self.xp.abs(self.Theta_FPM.transpose(0, 2, 1)[None, :, None, :]
                - WTh_NFTMP + self.eps) ** (self.alpha - 2.), optimize=True)
-        tmpI1_2 = self.xp.einsum("flkp, nftmp -> nftmlkp",self.ThTh_FMMP,
+        filename2 = path.join(mkdtemp(), 'tmpI2.dat')
+        tmpI2 = np.memmap(filename2, dtype='complex64', mode='w+', shape=(self.n_source,self.n_freq,self.n_time,self.n_mic,self.n_mic,self.n_mic,self.P))
+        tmpI2 = self.xp.einsum("flkp, nftmp -> nftmlkp",self.ThTh_FMMP,
               self.xp.abs(WTh_NFTMP + self.eps) ** (self.alpha - 2.))
-        I1 = tmpI1_1 - tmpI1_2
-        I1 = self.xp.einsum("nftmlkp, nft, nfp -> nftmlkp", I1, self.lambda_NFT, self.SM_NFP)
+        tmpI1 = tmpI1 - tmpI2
+        tmpI1 = self.xp.einsum("nftmlkp, nft, nfp -> nftmlkp", tmpI1, self.lambda_NFT, self.SM_NFP)
 
         cov_FTP = self.xp.einsum("nft, nfp -> ftp",self.lambda_NFT, self.SM_NFP)
         
         # N F T "M" M M P
-        I2 = self.xp.einsum("nftmlkp, ftp -> nftmlkp", tmpI1_2, cov_FTP)
-        self.P_NFTMMM = Cste * (I1 + I2).sum(axis=-1)
+        tmpI2 = self.xp.einsum("nftmlkp, ftp -> nftmlkp", tmpI2, cov_FTP)
+        self.P_NFTMMM = Cste * (tmpI1 + tmpI2).sum(axis=-1)
+        
+        del Cste, tmpI1, tmpI2, WTh_NFTMP, cov_FTP
 
     def update_Lagrange(self):
-        Id_NFTMMM = self.xp.ones((self.n_source, self.n_freq, self.n_time,
-                                  self.n_mic, self.n_mic, self.n_mic)) *\
-                    self.xp.eye(self.n_mic)[None, None, None, None]
         InvP_NFTMMM = self.xp.linalg.inv(self.P_NFTMMM)
         Inv_FTMMM = self.xp.linalg.inv(InvP_NFTMMM.sum(axis=0))
         if self.xp == "cp":
@@ -315,7 +353,8 @@ class Alpha_MNMF():
         #                         , self.xp.eye(self.n_mic))
         #Id_FTMM = self.xp.ones((self.n_freq, self.n_time, self.n_mic, self.n_mic))
         self.La_FTMM += self.xp.einsum("ftmlk, ftmk -> ftml",Inv_FTMMM ,
-                         (self.W_NFTMM.sum(axis=0) - Id_NFTMMM[0,:,:,0]))
+                         (self.W_NFTMM.sum(axis=0) - self.Id_NFTMMM[0,:,:,0]))
+        del InvP_NFTMMM, Inv_FTMMM
 
     def update_W(self):
         Cste = float(4 * self.xp.pi / self.P)  # integration constant
@@ -331,9 +370,11 @@ class Alpha_MNMF():
 
         InvP_NFTMMM = self.xp.linalg.inv(self.P_NFTMMM)
         self.W_NFTMM = self.xp.einsum("nftmlk,nftmk -> nftml",InvP_NFTMMM , (R_NFTMM - self.La_FTMM[None,:]))
+        
+        del Cste, WTh_NFTMP, R_NFTMM, InvP_NFTMMM
 
     def E_Step(self):
-        del self.Psi_FPQ, self.Xi_FTP
+        del self.Psi_FQP, self.Xi_FTP, self.W_NFK, self.H_NKT, self.Y_FTP
         gc.collect()
         mempool = self.xp.get_default_memory_pool()
         mempool.free_all_blocks()
@@ -342,30 +383,32 @@ class Alpha_MNMF():
         self.W_NFTMM = self.xp.ones((self.n_source, self.n_freq, self.n_time, self.n_mic, self.n_mic)).astype(self.xp.complex64)
         self.W_NFTMM *= (self.xp.eye(self.n_mic)/self.n_source)[None, None, None]
         self.La_FTMM = self.xp.zeros((self.n_freq, self.n_time, self.n_mic, self.n_mic)).astype(self.xp.complex64)
+        filenameP = path.join(mkdtemp(), 'P_NFTMMM.dat')     
+        self.P_NFTMMM = np.memmap(filenameP, dtype='complex64', mode='w+', shape=(self.n_source,self.n_freq,self.n_time,self.n_mic,self.n_mic,self.n_mic))
         self.P_NFTMMM = self.rand_s.rand(self.n_source, self.n_freq, self.n_time, self.n_mic, self.n_mic, self.n_mic).astype(self.xp.complex64)
         self.ThTh_FMMP = self.xp.einsum("fpm,fpl->fmlp",self.Theta_FPM , self.Theta_FPM.conj())
-        Id_NFTMMM = self.xp.ones((self.n_source, self.n_freq, self.n_time,
+        self.Id_NFTMMM = self.xp.ones((self.n_source, self.n_freq, self.n_time,
                                   self.n_mic, self.n_mic, self.n_mic)) *\
                     self.xp.eye(self.n_mic)[None, None, None, None]
         cov_array = []
         for it in range(self.nE_it):
             print("filtrage iteration = {}".format(it))
             self.update_P()
-            self.P_NFTMMM += 1e-3 * Id_NFTMMM
+            self.P_NFTMMM += 1e-3 * self.xp.trace(self.P_NFTMMM) * self.Id_NFTMMM
             self.P_NFTMMM[self.xp.isnan(self.P_NFTMMM)] = self.eps
             #ipdb.set_trace()
             self.update_Lagrange()
             self.La_FTMM[self.xp.isnan(self.La_FTMM)] = self.eps
             self.update_W()
             self.W_NFTMM[self.xp.isnan(self.W_NFTMM)] = self.eps
-            if self.save_cov and (it > 10) and(it % 50 == 0):
+            if self.save_cov and (it > 10) and(it % self.interval_save_parameter == 0):
                 self.cov_res = self.calculate_covariation()
                 #ipdb.set_trace()
                 cov_array.append(self.cov_res)
                 for n in range(self.n_source):
                     #cov_array.append(self.cov_res)
                     #ipdb.set_trace()
-                    plt.plot(cov_array)
+                    plt.plot(self.interval_save_parameter * self.convert_to_NumpyArray(self.xp.arange(len(cov_array))),self.convert_to_NumpyArray(cov_array))
                     plt.show()
         #ipdb.set_trace()
         self.Y_NFTM = self.xp.einsum("nftml,ftl->nftm", self.W_NFTMM.conj() , self.X_FTM)
@@ -393,7 +436,8 @@ class Alpha_MNMF():
         tmp2 = self.xp.einsum("nftmp, nft, nfp -> n",
                 self.xp.abs(WTh_NFTMP) ** self.alpha , self.lambda_NFT , self.SM_NFP )
         
-        cov = tmp1 - tmp2 
+        cov = tmp1 + tmp2 
+        
         
         return self.convert_to_NumpyArray(cov.mean())
 
@@ -416,6 +460,7 @@ class Alpha_MNMF():
               save_cov=False,
               save_parameter=False, save_wav=True,
               save_path="./", interval_save_parameter=10):
+                  
         """
         Parameters:
             save_likelihood: boolean
@@ -431,6 +476,7 @@ class Alpha_MNMF():
         """
 
         # Initialization
+        self.interval_save_parameter = interval_save_parameter
         self.save_cov = save_cov
         self.n_iteration = n_iteration
         self.save_path = save_path
@@ -438,9 +484,9 @@ class Alpha_MNMF():
         self.init_Psi()
         self.init_SM()
         self.init_WH()
-        if self.oracle:
-            self.X_NFTM = self.X_FTM
-            self.X_FTM = self.xp.einsum('nftp -> ftp',self.X_FTM)
+        # self.ref = self.xp.einsum("nftm -> nft",self.X_NFTM)
+        self.X_FTM = self.xp.einsum('nftm -> ftm',self.X_NFTM)
+        del self.X_NFTM
         self.init_auxfunc()
         self.make_filename_suffix()
 
@@ -448,13 +494,8 @@ class Alpha_MNMF():
         f_, ax = plt.subplots(2, 2)
         end = -1
         for it in range(self.n_iteration):
-            # if self.oracle:
-            #     break
-            print(it)
-            #ipdb.set_trace()
-            self.ac = it
             self.update_WH()
-            if self.oracle == False:
+            if self.oracle == True:
                 self.update_SM()
             if self.update_psi:
                 self.update_Psi()
@@ -463,26 +504,25 @@ class Alpha_MNMF():
             ax[0, 1].imshow(self.convert_to_NumpyArray(self.xp.log(self.xp.abs(self.lambda_NFT[1])**2)), origin="lower", label='lambda')
             ax[1, 0].imshow(self.convert_to_NumpyArray(self.xp.log(self.xp.abs(self.SM_NFP[0])**2)), origin="lower",label='gamma')
             ax[1, 1].imshow(self.convert_to_NumpyArray(self.xp.log(self.xp.abs(self.SM_NFP[1])**2)), origin="lower",label='gamma')
-            # ax[1, 0].plot(self.convert_to_NumpyArray(self.SM_NP[0]))
-            # ax[1, 1].plot(self.convert_to_NumpyArray(self.SM_NP[1]))
-            if save_likelihood and ((it+1) % interval_save_parameter == 0) and ((it+1) != self.n_iteration):
+            if save_likelihood and ((it+1) % self.interval_save_parameter == 0) and ((it+1) != self.n_iteration):
                 ll_res = self.calculate_log_likelihood()
                 ll_array.append(ll_res)
-                # plt.plot(ll_array)
-                # plt.show()
-                plt.savefig(save_path + "test{}.png".format(it))
+                plt.plot(self.interval_save_parameter * self.convert_to_NumpyArray(self.xp.arange(len(ll_array))),ll_array)
+                plt.show()
+                #plt.savefig(save_path + "test{}.png".format(it))
             end += 1 
-
+        
         if save_likelihood and (end+1 == self.n_iteration):
             ll_res = self.calculate_log_likelihood()
             ll_array.append(ll_res)
             plt.plot(ll_array)
             plt.show()
+            del ll_res, ll_array
             # plt.savefig(save_path + "{}-likelihood-interval={}-{}.png".format(self.method_name, interval_save_parameter, self.filename_suffix))
             # pkl.dump(ll_array, open(save_path + "{}-likelihood-interval={}-{}.pic".format(self.method_name, interval_save_parameter, self.filename_suffix), "wb"))
         if save_wav and ((end+1) == self.n_iteration):
             self.E_Step()
-            self.save_separated_signal(save_path+"{}-{}".format(self.method_name, self.filename_suffix))
+            self.save_separated_signal(save_path + "{}-{}".format(self.method_name, self.filename_suffix))
 
         if save_parameter:
             with h5py.File(save_path + "spatial-measure-{}-{}.hdf5".format(self.method_name, self.filename_suffix), 'w') as file_obj:
@@ -493,17 +533,34 @@ class Alpha_MNMF():
                     compression='lzf')
 
     def save_separated_signal(self, save_fileName="sample.wav"):
+        del self.P_NFTMMM, self.La_FTMM
         self.Y_NFTM = self.convert_to_NumpyArray(self.Y_NFTM)
+        self.X_NFTM = self.convert_to_NumpyArray(self.X_NFTM)
         hop_length = int((self.n_freq - 1) / 2)
         for n in range(self.n_source):
             for m in range(self.n_mic):
                 tmp = librosa.core.istft(self.Y_NFTM[n, :, :, m],
                                          hop_length=hop_length)
+                tmp_ref = librosa.core.istft(self.X_NFTM[n, :, :, m],
+                                         hop_length=hop_length)
                 if n == 0 and m == 0:
+                    ref = np.zeros([self.n_source, len(tmp), self.n_mic])
                     separated_signal = np.zeros([self.n_source, len(tmp), self.n_mic])
-                    print("taille signaux separes",separated_signal.shape)
+                ref[n,:,m] = tmp_ref
                 separated_signal[n, :, m] = tmp
+        ref /= np.abs(ref).max() * 1.2
         separated_signal /= np.abs(separated_signal).max() * 1.2
-
+        print("taille signaux separes",separated_signal.shape)
+        
+        SDR, SIR, SAR, PERM = [], [], [], []
+        
+        # for i in range self.n_source:
+        #     sdr, sir, sar, perm = mir_eval.separation.bss_eval_sources(ref.sum(axis=1), separated_signal.sum(axis=-1))
+        #     SDR.append(sdr)
+        #     SIR.append(sir)
+        #     SAR.append(sar)
+        #     PERM.append(perm)
+        # plt.plot()
+        
         for n in range(self.n_source):
-            sf.write(save_fileName + "-N={}.wav".format(n), separated_signal[n,:,:], 41000)
+            sf.write(save_fileName + "-down-N={}.wav".format(n), separated_signal[n,:,:], 22050)

@@ -19,7 +19,7 @@ import pickle as pkl
 import time
 
 save = True
-oracle = True
+
 #%%
 # =============================================================================
 # Audios
@@ -32,9 +32,9 @@ wav_files = [
         ['./data/audio/in/test_sax.wav',]
         ]
 
-signals = [ np.concatenate([wavfile.read(f)[1].astype(np.float32)
+signals = [ np.concatenate([samplerate.resample(wavfile.read(f)[1].astype(np.float32), 22050 * 1.0 / 44100, 'sinc_best')
         for f in source_files])
-for source_files in wav_files ]
+           for source_files in wav_files ]
 
 #%%
 
@@ -46,6 +46,7 @@ for source_files in wav_files ]
 for i in range(len(signals)):
     signals[i] /= np.max(np.abs(signals[i]))
     
+
 #%%
 # =============================================================================
 # ROOM
@@ -103,14 +104,12 @@ win_s = pra.transform.stft.compute_synthesis_window(win_a, hop)
 X = pra.transform.stft.analysis(mics_signals.T, L, hop, win=win_a)
 t,f,m = X.shape
 
-if oracle:
-    X_2 = np.empty((len(wav_files),t,f,m)).astype(np.complex64)
-    for n in range(len(wav_files)):
-        X_2[0] = pra.transform.stft.analysis(separate_recordings[0].T, L, hop, win=win_a)
-        X_2[1] = pra.transform.stft.analysis(separate_recordings[1].T, L, hop, win=win_a)
-    X_2 = X_2.transpose(0,2,1,3)
-X = X.transpose(1,0,2)
-X = X[:,:,:]
+X_2 = np.empty((len(wav_files),t,f,m)).astype(np.complex64)
+for n in range(len(wav_files)):
+    X_2[0] = pra.transform.stft.analysis(separate_recordings[0].T, L, hop, win=win_a)
+    X_2[1] = pra.transform.stft.analysis(separate_recordings[1].T, L, hop, win=win_a)
+X_2 = X_2.transpose(0,2,1,3)  # shape = source, f, t, m
+
 
 # Reference signal to calculate performance of BSS
 #ref = separate_recordings[ : , 0 , :]
@@ -123,17 +122,11 @@ X = X[:,:,:]
 # =============================================================================
 
 save_path = './data/audio/out/'
-filename_oracle = ".pkl"
-if oracle :
-  filename_oracle = "-oracle" + filename_oracle
-
 
 nfft = L // 2 
 
-f_model = open((save_path + 'mixture_nfft={}' + filename_oracle).format(nfft), 'wb')
+f_model = open((save_path + 'down-mixture_nfft={}.pkl' ).format(nfft), 'wb')
 
-if oracle:
-    pkl.dump(X_2[:,:-1,:450,:], f_model)
-else:
-    pkl.dump(X[:-1,:450,:], f_model)
+pkl.dump(X_2[:,:-1,:450,:], f_model)
+
 f_model.close()
