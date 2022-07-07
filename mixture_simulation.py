@@ -27,14 +27,14 @@ save = True
 
 # concatanate audio samples to make them look long enough
 wav_files = [
-        #['./data/audio/in/test_bass.wav',],
         ['./data/audio/in/test_piano.wav',],
-        ['./data/audio/in/test_sax.wav',]
+        ['./data/audio/in/test_sax.wav',],
+        #['./data/audio/in/test_bass.wav',]
         ]
 
-signals = [ np.concatenate([samplerate.resample(wavfile.read(f)[1].astype(np.float32), 22050 * 1.0 / 44100, 'sinc_best')
+signals = [ np.concatenate([wavfile.read(f)[1].astype(np.float32)
         for f in source_files])
-           for source_files in wav_files ]
+for source_files in wav_files ]
 
 #%%
 
@@ -56,11 +56,11 @@ for i in range(len(signals)):
 room_dim = [8, 9, 3]
 
 # source locations and delays
-locations = [[2.5,3, 1.5], [2.5, 6,1.5] ]  # , [2.5,4.5,1.5]
+locations = [[2.5,3, 1.5], [2.5, 6,1.5] ]#  , [2.5, 4.5,1.5] ]
 delays = [0., 0., 0.]
 
 # create an anechoic room with sources and mics  
-room = pra.ShoeBox(room_dim, fs=16000, max_order=0, absorption=0.9, sigma2_awgn=1e-8)
+room = pra.ShoeBox(room_dim, fs=16000, max_order=0, sigma2_awgn=1e-8)
 
 # add mic and good source to room
 # Add silent signals to all sources
@@ -106,8 +106,7 @@ t,f,m = X.shape
 
 X_2 = np.empty((len(wav_files),t,f,m)).astype(np.complex64)
 for n in range(len(wav_files)):
-    X_2[0] = pra.transform.stft.analysis(separate_recordings[0].T, L, hop, win=win_a)
-    X_2[1] = pra.transform.stft.analysis(separate_recordings[1].T, L, hop, win=win_a)
+    X_2[n] = pra.transform.stft.analysis(separate_recordings[n].T, L, hop, win=win_a)
 X_2 = X_2.transpose(0,2,1,3)  # shape = source, f, t, m
 
 
@@ -125,8 +124,8 @@ save_path = './data/audio/out/'
 
 nfft = L // 2 
 
-f_model = open((save_path + 'down-mixture_nfft={}.pkl' ).format(nfft), 'wb')
+f_model = open((save_path + 'mixture_nfft={}-N={}-M={}.pkl' ).format(nfft, len(wav_files), m), 'wb')
 
-pkl.dump(X_2[:,:-1,:450,:], f_model)
+pkl.dump(X_2[:,:-1,:,:], f_model)
 
 f_model.close()
